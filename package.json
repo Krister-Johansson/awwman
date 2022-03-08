@@ -1,0 +1,29 @@
+{
+  "name": "awwman",
+  "version": "1.0.0",
+  "description": "Aww man",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Krister-Johansson/awwman.git"
+  },
+  "author": "Krister \"sweLogan\" Johansson",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Krister-Johansson/awwman/issues"
+  },
+  "homepage": "https://github.com/Krister-Johansson/awwman#readme",
+  "dependencies": {
+    "axios": "^0.26.0",
+    "body-parser": "^1.19.2",
+    "dotenv": "^16.0.0",
+    "express": "^4.17.3",
+    "log4js": "^6.4.2",
+    "minecraft-server-util": "^5.2.9",
+    "tmi.js": "^1.8.5"
+  }
+}
