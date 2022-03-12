@@ -21,6 +21,9 @@ const {
   USERNAME,
   PASSWORD,
   CHANNELS,
+  MCRCONHOST,
+  MCRCONPORT,
+  MCRCONPASSWORD,
 } = process.env;
 
 const MESSAGE_TYPE = "Twitch-Eventsub-Message-Type".toLowerCase();
@@ -32,7 +35,7 @@ const app = express();
 const logger = log4js.getLogger();
 logger.level = "debug";
 
-minecraft("localhost", 25575, "helloworld");
+minecraft(MCRCONHOST, MCRCONPORT, MCRCONPASSWORD);
 
 const twitchClient = new tmi.Client({
   options: { debug: true },
@@ -225,15 +228,14 @@ twitchClient.on("message", async (channel, tags, message, self) => {
     logger.debug(result);
   }
 });
+twitchClient
+  .connect()
+  .then((x) => logger.info("We are connected to chat!"))
+  .catch(console.error);
+// app.listen(PORT, async () => {
+//   // const runCommand = await minecraft.execute(`say Hello from server`);
+//   // console.log(runCommand);
 
-app.listen(PORT, async () => {
-  // const runCommand = await minecraft.execute(`say Hello from server`);
-  // console.log(runCommand);
+//   logger.info(`Aww man listening on port ${PORT}`);
 
-  logger.info(`Aww man listening on port ${PORT}`);
-
-  twitchClient
-    .connect()
-    .then((x) => logger.info("We are connected to chat!"))
-    .catch(console.error);
-});
+// });
