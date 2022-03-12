@@ -1,14 +1,27 @@
 require("dotenv").config();
+
 const express = require("express");
+const axios = require("axios");
 const bodyParser = require("body-parser");
 const log4js = require("log4js");
 const tmi = require("tmi.js");
 
 const verifySignature = require("./utils/verifySignature");
 const minecraft = require("./utils/minecraft");
+const streamloots = require("./utils/streamloots");
+const utils = require("./utils");
 
-const { PORT, PLAYERNAME, NOTIFICATION_SECRET, USERNAME, PASSWORD, CHANNELS } =
-  process.env;
+const {
+  PORT,
+  PLAYERNAME,
+  TWITCH_CLIENT_ID,
+  NOTIFICATION_SECRET,
+  NGROK_TUNNEL_URL,
+  TWITCH_SECRET,
+  USERNAME,
+  PASSWORD,
+  CHANNELS,
+} = process.env;
 
 const MESSAGE_TYPE = "Twitch-Eventsub-Message-Type".toLowerCase();
 const TWITCH_SUBSCRIPTION_TYPE =
@@ -30,27 +43,6 @@ const twitchClient = new tmi.Client({
   channels: [CHANNELS],
 });
 
-const randomColor = (min, max) => {
-  return Math.floor(Math.random() * (max - min + 1) + min);
-};
-
-const countBits = (userBits) => {
-  const target = 500;
-  if (userBits < target) return 0;
-  return Math.floor(userBits / target);
-};
-
-const parsCommands = (data) => {
-  const validCommand = data.includes("mc#");
-  console.log(`Command is valid:`, validCommand);
-
-  if (!validCommand) return null;
-
-  let rawData = data.split("mc#");
-  let dataCommands = rawData.splice(1, 1)[0];
-  return dataCommands.split(";");
-};
-
 app.use(
   log4js.connectLogger(log4js.getLogger("access"), {
     level: log4js.levels.INFO,
@@ -69,6 +61,27 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
+app.get("/login", (req, res) => {
+  res.redirect(
+    `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${NGROK_TUNNEL_URL}/token&response_type=code&scope=bits:read channel:read:subscriptions`
+  );
+});
+
+app.get("/token", async (req, res) => {
+  const { code } = req.query;
+
+  if (code) {
+    axios
+      .post(
+        `https://id.twitch.tv/oauth2/token?client_id=${TWITCH_CLIENT_ID}&client_secret=${TWITCH_SECRET}&code=${code}&grant_type=client_credentials&redirect_uri=${NGROK_TUNNEL_URL}/token`
+      )
+      .then((result) => console.log(result.data))
+      .catch((error) => console.log(error));
+  }
+
+  res.redirect("/");
+});
+
 app.post(
   "/notification",
   verifySignature(NOTIFICATION_SECRET),
@@ -79,13 +92,19 @@ app.post(
         break;
 
       case "notification":
+        const {
+          from_broadcaster_user_name,
+          user_name,
+          bits,
+          broadcaster_user_name,
+          tier,
+          is_gift,
+        } = req.body.event;
+
         switch (req.header(TWITCH_SUBSCRIPTION_TYPE)) {
           case "channel.raid":
-            const { from_broadcaster_user_name } = req.body.event;
-
             logger.info(`${from_broadcaster_user_name} just raided you! <3`);
             res.send("");
-            return;
             break;
 
           case "channel.follow":
@@ -93,10 +112,11 @@ app.post(
 
             logger.info(`${follower} just followed!`);
 
-            const commandChannelFollow = `summon sheep [[PlayerPos]] {CustomName:"\\"${follower}\\"", Color:${randomColor(
+            const commandChannelFollow = `summon sheep [[PlayerPos]] {CustomName:"\\"${follower}\\"", Color:${utils.randomColor(
               0,
               15
             )}}`;
+
             const resultChannelFollow = await minecraft.execute(
               commandChannelFollow,
               PLAYERNAME
@@ -113,17 +133,26 @@ app.post(
             break;
 
           case "channel.cheer":
-            const { user_name: userName, bits } = req.body.event;
+            logger.info(`${user_name} just cheerd ${bits} bits!`);
 
-            logger.info(`${userName} just cheerd ${bits} bits!`);
-            const totalBits = countBits(bits);
-            logger.debug("totalBits", totalBits);
+            if (bits < 100) {
+              res.send("");
+              return;
+            }
 
-            const commandChannelCheer = `summon creeper [[PlayerPos]] {CustomName:"\\"${userName}\\""}`;
+            let totalSummon = utils.countBits(bits);
+            let summonCreeper = true;
 
-            for (let index = 0; index < totalBits; index++) {
+            if (totalSummon == 0) {
+              totalSummon = utils.countChickenBits(bits);
+              summonCreeper = false;
+            }
+
+            for (let index = 0; index < totalSummon; index++) {
               const resultChannelCheer = await minecraft.execute(
-                commandChannelCheer,
+                `summon ${
+                  summonCreeper ? "creeper" : "chicken"
+                } [[PlayerPos]] {CustomName:"\\"${user_name}\\""}`,
                 PLAYERNAME
               );
 
@@ -133,16 +162,12 @@ app.post(
                 logger.warn(resultChannelCheer.error);
               }
             }
-
             res.send("");
-
             break;
 
           case "channel.subscribe":
-            const { user_name, broadcaster_user_name, tier, is_gift } =
-              req.body.event;
-
             console.log(user_name, broadcaster_user_name, tier, is_gift);
+
             let command = `summon creeper [[PlayerPos]] {CustomName:"\\"${user_name}\\""}`;
 
             if (tier == 300) {
@@ -156,9 +181,7 @@ app.post(
             } else {
               logger.warn(result.error);
             }
-
             res.send("");
-
             break;
 
           default:
@@ -167,9 +190,7 @@ app.post(
               req.header(TWITCH_SUBSCRIPTION_TYPE),
               req.body
             );
-
             res.send("");
-
             break;
         }
         break;
@@ -180,7 +201,6 @@ app.post(
           req.header(MESSAGE_TYPE),
           req.body
         );
-
         res.send("");
         break;
     }
@@ -190,7 +210,7 @@ app.post(
 twitchClient.on("message", async (channel, tags, message, self) => {
   if (tags.username != "streamlootsbot") return;
 
-  let commands = parsCommands(message);
+  let commands = streamloots.parsCommands(message);
 
   logger.debug(commands);
 
@@ -206,11 +226,14 @@ twitchClient.on("message", async (channel, tags, message, self) => {
   }
 });
 
-twitchClient
-  .connect()
-  .then((x) => logger.info("We are connected to chat!"))
-  .catch(console.error);
+app.listen(PORT, async () => {
+  // const runCommand = await minecraft.execute(`say Hello from server`);
+  // console.log(runCommand);
 
-app.listen(PORT, () => {
   logger.info(`Aww man listening on port ${PORT}`);
+
+  twitchClient
+    .connect()
+    .then((x) => logger.info("We are connected to chat!"))
+    .catch(console.error);
 });
